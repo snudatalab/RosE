@@ -1,6 +1,6 @@
 # ****__RosE__****
 
-This project is a PyTorch implementation of **__RosE__**: "Accurate and Diversified Sequential Bundle Recommendation".
+This project is a PyTorch implementation of "**__RosE__**: Accurate and Diversified Sequential Bundle Recommendation".
 
 ## Prerequisites
 - Python 3.8+
@@ -48,5 +48,6 @@ You can run the evaluation code with the command `python main.py` with the follo
   * `tau` : control the trade-off between accuracy and diversity
 * Specify the length of recommendation list
   * `k` : the length of recommendation list
+
 
 As default, `python main.py` would reproduce the results reported in the paper for Chess dataset.
