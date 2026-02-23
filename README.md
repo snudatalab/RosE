@@ -1,6 +1,6 @@
 # ****__RosE__****
 
-This project is a PyTorch implementation of **__RosE__**: "Sequentially Diversified Bundle Recommendation via Rank-oriented Scoring and Entropy Estimation".
+This project is a PyTorch implementation of **__RosE__**: "Accurate and Diversified Sequential Bundle Recommendation".
 
 ## Prerequisites
 - Python 3.8+
@@ -14,8 +14,7 @@ This project is a PyTorch implementation of **__RosE__**: "Sequentially Diversif
 We provide four datasets in this project: Chess, Crypto, Physics, and Math.
 All datasets are obtained from [StackExchange dump data](https://archive.org/details/stackexchange).
 We include the preprocessed datasets in the repository: `data/{dataname}`
-
-Math dataset is uploaded with git lfs because of its large size.
+They are uploaded with git lfs due to their large size.
 Use git lfs with the following scripts after cloning this repository to download large datasets.
 ```
 curl -s https://packagecloud.io/install/repositories/github/git-lfs/script.deb.sh | sudo bash
@@ -23,7 +22,7 @@ sudo apt install git-lfs
 git lfs pull
 ```
 
-We also provide a [direct link](https://drive.google.com/drive/folders/1wrNShRzpG53Kn2YgnRO5jjsvFpgMYRbW?usp=sharing) to download Math dataset. 
+We also provide a [direct link](https://drive.google.com/drive/folders/1gr95tP3Ae7f4c4V5mx5jzLETHDWdVis1?usp=drive_link) to download all datasets. 
 
 ## Base Model
 We provide the adapted SASRec to process sequential bundle recommendation.
