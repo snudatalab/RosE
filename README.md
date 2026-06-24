@@ -52,3 +52,4 @@ You can run the evaluation code with the command `python main.py` with the follo
 
 
 As default, `python main.py` would reproduce the results reported in the paper for Chess dataset.
+We also provide a script `run.sh` to reproduce the results of the paper for all datasets.
