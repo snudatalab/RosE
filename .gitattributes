@@ -1,2 +1,5 @@
-data/ filter=lfs diff=lfs merge=lfs -text
-data/** filter=lfs diff=lfs merge=lfs -text
+data/Preprocessing.ipynb -filter -diff -merge text
+data/Chess/** filter=lfs diff=lfs merge=lfs -text
+data/Crypto/** filter=lfs diff=lfs merge=lfs -text
+data/Physics/** filter=lfs diff=lfs merge=lfs -text
+data/Math/** filter=lfs diff=lfs merge=lfs -text
