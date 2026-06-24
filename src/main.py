@@ -141,10 +141,11 @@ def main(
     print('Generate recommendations...')
     reclist = RosE(model, test_input, iprob, itemnum, max_bundle_size, BIsparse, tau=tau, k=k)
 
-    ndcg, ent = eval(reclist, test_ans, BIsparse, bundlenum, itemnum, k=k)
+    ndcg, ent, gini = eval(reclist, test_ans, BIsparse, bundlenum, itemnum, k=k)
     print()
-    print(f'nDCG@{k} : {ndcg:.4f}')
-    print(f'ENT@{k}  : {ent:.4f}')
+    print(f'nDCG@{k} : {ndcg:.3f}')
+    print(f'ENT@{k}  : {ent:.3f}')
+    print(f'Gini@{k} : {gini:.3f}')
     print()
 
 if __name__ == '__main__':

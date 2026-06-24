@@ -37,8 +37,17 @@ def eval(reclist, ans, BIsparse, bund_num, item_num, k=None):
             itemcnt[i] += bcnt[b]
     
     ent = entr(itemcnt / itemcnt.sum()).sum()
+
+    cnt = itemcnt[1:]
+    cnt.sort()
+    height, area = 0, 0
+    for c in cnt:
+        height += c
+        area += height - c / 2
+    fair_area = height * item_num / 2
+    gini = (fair_area - area) / fair_area
     
-    return ndcg, ent
+    return ndcg, ent, gini
 
 def test_data(fname, maxlen=200):
     usernum = 0
