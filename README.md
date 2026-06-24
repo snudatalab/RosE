@@ -22,7 +22,8 @@ sudo apt install git-lfs
 git lfs pull
 ```
 
-We also provide a [direct link](https://drive.google.com/drive/folders/1gr95tP3Ae7f4c4V5mx5jzLETHDWdVis1?usp=drive_link) to download all datasets. 
+We also provide a [direct link](https://drive.google.com/drive/folders/1gr95tP3Ae7f4c4V5mx5jzLETHDWdVis1?usp=drive_link) to download all datasets,
+and a preprocessing script `data/preprocessing.ipynb` to generate the datasets from the original StackExchange dump data.
 
 ## Base Model
 We provide the adapted SASRec to process sequential bundle recommendation.
