@@ -1,152 +1,106 @@
-from tqdm import tqdm
+"""Run one RosE operating point."""
+
 import click
-
-import torch
 import numpy as np
-from scipy.sparse import csr_matrix
+import torch
 
-from model import SBR
-from main_util import *
+from experiment_util import (
+    bundle_diversity_gains,
+    checkpoint_identity,
+    emit,
+    forecast_remaining,
+    load_experiment,
+    make_item_prior,
+    metrics,
+    reorder_users,
+    save_recommendations as save_pickle,
+    source_order_indices,
+)
+from main_util import min_max_normalize, softmax
 
 
-def RosE(model, test_input, iprob, itemnum, max_bundle_size, BIsparse, tau=1, k=10):
+def RosE(model, test_input, iprob, itemnum, max_bundle_size, BIsparse,
+         tau=1, k=10, horizon=None, policy="exact"):
+    """Generate RosE recommendations in chronological user order."""
     newreclist = []
+    ifreq = np.zeros(itemnum + 1)
 
-    ifreq = np.zeros(itemnum+1)
+    with torch.no_grad():
+        for u, sequence in enumerate(test_input):
+            if horizon and u and u % horizon == 0 and policy == "windowed":
+                ifreq = np.zeros(itemnum + 1)
 
-    for u in tqdm(range(len(test_input))):
-        pred = model.predict(torch.LongTensor(test_input[u]).to(model.device))
-        pred = pred.squeeze().cpu().detach().numpy()
+            pred = model.predict(torch.as_tensor(sequence, dtype=torch.long,
+                                                 device=model.device))
+            pred = pred.squeeze().cpu().numpy()
+            bpref = np.insert(pred, 0, 0)
 
-        bpref = np.insert(pred, 0, 0)
+            remaining = forecast_remaining(u, len(test_input), horizon, policy)
+            expected = remaining * k * iprob
+            # Item gains are normalized before their linear bundle aggregation.
+            # This is equivalent to scaling afterward and keeps values small.
+            divgain = bundle_diversity_gains(BIsparse, ifreq, expected)
 
-        expifreq = ifreq + (len(test_input)-u-1) * k * iprob
+            score = min_max_normalize(softmax(bpref[1:], temperature=tau))
+            joint = score + (1 - score) * divgain
+            reclist = (-joint).argsort()[:k] + 1
+            reclist = sorted(reclist, reverse=True, key=lambda b: bpref[b])
 
-        expiprob = expifreq / sum(expifreq)
-        ent0 = -np.sum(expiprob[1:] * np.log2(expiprob[1:]))
-        expiprob1 = expifreq / (sum(expifreq)+1)
-        ent1 = -np.sum(expiprob1[1:] * np.log2(expiprob1[1:]))
+            for bundle in reclist:
+                ifreq += BIsparse[bundle].toarray().squeeze()
+            newreclist.append(reclist)
 
-        expiprob2 = (expifreq + 1) / (sum(expifreq)+1)
-        idivgain = (ent1-ent0) - (expiprob2[1:] * np.log2(expiprob2[1:])) + (expiprob1[1:] * np.log2(expiprob1[1:]))
-        idivgain /= max(np.abs(idivgain))
-        idivgain = np.insert(idivgain, 0, 0)
-
-        bdivgain = BIsparse.dot(idivgain) / max_bundle_size
-
-        divgain = bdivgain
-
-        score = softmax(bpref[1:], temperature=tau)
-        score = min_max_normalize(score)
-        score = np.insert(score, 0, 0)
-
-        g = score + (1-score)*divgain
-        
-        reclist = (-g).argsort()[:k]
-
-        reclist = sorted(reclist, reverse=True, key=lambda b: bpref[b])
-
-        for b in reclist:
-            ifreq += BIsparse[b].toarray().squeeze()
-        newreclist.append(reclist)
-
-    newreclist = torch.LongTensor(newreclist)
-
-    return newreclist
+    return torch.as_tensor(newreclist, dtype=torch.long)
 
 
 @click.command()
-@click.option('--maxlen', default = 200)
-@click.option('--embedding_dim', default=128)
-@click.option('--num_heads', default=1)
-@click.option('--dropout_rate', default=0.5)
-@click.option('--num_blocks', default=2)
-@click.option('--dataname', default='chess')
-@click.option('--path', default=None)
-@click.option('--tau', default=2.1)
-@click.option('--k', default=10)
-def main(
-        maxlen,
-        embedding_dim,
-        num_heads,
-        dropout_rate,
-        num_blocks,
-        dataname,
-        path,
-        tau,
-        k
-    ):
-    device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
+@click.option("--maxlen", default=200, type=int)
+@click.option("--embedding-dim", "embedding_dim", default=128, type=int)
+@click.option("--num-heads", "num_heads", default=1, type=int)
+@click.option("--dropout-rate", "dropout_rate", default=0.5, type=float)
+@click.option("--num-blocks", "num_blocks", default=2, type=int)
+@click.option("--dataname", type=click.Choice(["chess", "crypto", "physics", "math"]), default="chess")
+@click.option("--path", type=click.Path(), default=None)
+@click.option("--tau", default=2.1, type=float)
+@click.option("--k", default=10, type=int)
+@click.option("--prior", type=click.Choice(["legacy", "train", "uniform", "sasrec"]), default="train")
+@click.option("--order-seed", default=None, type=int)
+@click.option("--policy", type=click.Choice(["exact", "windowed", "retained"]), default="exact")
+@click.option("--horizon", default=None, type=int)
+@click.option("--max-users", default=None, type=click.IntRange(min=1))
+@click.option("--save-recommendations", type=click.Path(), default=None)
+def main(maxlen, embedding_dim, num_heads, dropout_rate, num_blocks, dataname,
+         path, tau, k, prior, order_seed, policy, horizon, max_users,
+         save_recommendations):
+    """Run and print one RosE operating point as one terminal line."""
+    model, inputs, answers, bprob, bi, bundlenum, itemnum = load_experiment(
+        dataname, path, maxlen, embedding_dim, num_heads, dropout_rate, num_blocks)
+    inputs, answers, order = reorder_users(
+        inputs, answers, order_seed, max_users, source_order_indices(dataname))
+    iprob = make_item_prior(prior, dataname, bi, bprob, model, k, maxlen)
+    max_bundle_size = int(np.asarray(bi.sum(axis=1)).max())
+    reclist = RosE(model, inputs, iprob, itemnum, max_bundle_size, bi,
+                   tau=tau, k=k, horizon=horizon, policy=policy)
+    recommendations = reclist.cpu().numpy()
+    result = metrics("rose", dataname, k, recommendations, answers, bi,
+                     bundlenum, itemnum)
+    model_config = {"maxlen": maxlen, "embedding_dim": embedding_dim,
+                    "num_heads": num_heads, "dropout_rate": dropout_rate,
+                    "num_blocks": num_blocks}
+    checkpoint = checkpoint_identity(dataname, path)
+    result.update(tau=tau, prior=prior, order_seed=order_seed,
+                  policy=policy, horizon=horizon, checkpoint=checkpoint,
+                  model_config=model_config, case_count=len(recommendations),
+                  max_users=max_users)
+    save_pickle(
+        save_recommendations, recommendations, answers, order,
+        method="rose", dataname=dataname, k=k, tau=tau, prior=prior,
+        order_seed=order_seed, policy=policy, horizon=horizon,
+        item_prior=iprob, checkpoint=checkpoint, model_config=model_config,
+        max_users=max_users,
+    )
+    emit(result)
 
-    b_i_file = open(f'../data/{dataname}/bundle-item.txt', 'r')
 
-    print('Read data...')
-    item_num=0
-    bundle_item_list_dict= defaultdict(list)
-    for line in b_i_file:
-        bundle_id, item_id = line.rstrip().split('\t')
-        bundle_id = int(bundle_id)
-        item_id = int(item_id)
-        item_num = max(item_id, item_num)
-        bundle_item_list_dict[bundle_id].append(item_id)
-
-    max_bundle_size = max(len(lst) for lst in bundle_item_list_dict.values())
-
-    print('Preprocess data...')
-    its = {}
-    for b in bundle_item_list_dict:
-        for i in bundle_item_list_dict[b]:
-            if i not in its:
-                its[i] = True
-
-    itemnum = len(its)
-
-    data = []
-    row_indices = []
-    col_indices = []
-    for b in bundle_item_list_dict:
-        for i in bundle_item_list_dict[b]:
-            data.append(1.0)
-            row_indices.append(b)
-            col_indices.append(i)
-
-    BIsparse = csr_matrix((data, (row_indices, col_indices)))
-
-    bundle_item_vector_dict = {}
-    for b in bundle_item_list_dict:
-        ifreq = np.zeros(itemnum+1)
-        for i in bundle_item_list_dict[b]:
-            ifreq[i] += 1
-        bundle_item_vector_dict[b] = ifreq
-
-    usernum, bundlenum, test_input, test_ans, bprob = test_data(dataname, maxlen)
-
-    iprob = np.zeros(itemnum+1)
-    for b in range(1, bundlenum+1):
-        iprob += BIsparse[b].toarray().squeeze() * bprob[b]
-
-    print('Load the model...')
-    model = SBR(bundlenum, item_num, bundle_item_list_dict, max_bundle_size, device,
-            maxlen=maxlen, embedding_dim=embedding_dim, num_heads=num_heads, 
-            dropout_rate=dropout_rate, num_blocks=num_blocks).to(device)
-
-    if not path:
-        model_path = f'../data/{dataname}/pretrained.pt'
-    else:
-        model_path = path
-    model.load_state_dict(torch.load(model_path, map_location = device))
-
-    model.eval()
-
-    print('Generate recommendations...')
-    reclist = RosE(model, test_input, iprob, itemnum, max_bundle_size, BIsparse, tau=tau, k=k)
-
-    ndcg, ent, gini = eval(reclist, test_ans, BIsparse, bundlenum, itemnum, k=k)
-    print()
-    print(f'nDCG@{k} : {ndcg:.3f}')
-    print(f'ENT@{k}  : {ent:.3f}')
-    print(f'Gini@{k} : {gini:.3f}')
-    print()
-
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
